@@ -3,7 +3,6 @@ package com.xos.dynamicisland;
 import android.app.*;
 import android.os.*;
 import android.content.*;
-import android.app.usage.*;
 import android.view.*;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -18,9 +17,13 @@ public class IslandService extends Service {
     TextView title;
     View dot;
     WindowManager.LayoutParams params;
-    Handler handler = new Handler();
+    android.content.SharedPreferences prefs;
+
     boolean expanded = false;
     boolean added = false;
+    boolean receiverRegistered = false;
+
+    final String ACTION_UPDATE = "com.xos.dynamicisland.UPDATE";
 
     int dp(float n) {
         return (int)(n * getResources().getDisplayMetrics().density + 0.5f);
@@ -33,12 +36,22 @@ public class IslandService extends Service {
         return d;
     }
 
+    BroadcastReceiver updateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            updatePosition();
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
 
+        prefs = getSharedPreferences("XOS_POSITION", MODE_PRIVATE);
+
         NotificationChannel channel = new NotificationChannel(
-            "xos_channel", "XOS Island",
+            "xos_channel",
+            "XOS Island",
             NotificationManager.IMPORTANCE_LOW
         );
 
@@ -49,6 +62,7 @@ public class IslandService extends Service {
             .setContentTitle("XOS Dynamic Island")
             .setContentText("Island is active")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
             .build();
 
         if (Build.VERSION.SDK_INT >= 34) {
@@ -59,11 +73,22 @@ public class IslandService extends Service {
         }
 
         wm = (WindowManager)getSystemService(WINDOW_SERVICE);
+
         createIsland();
-        handler.post(poll);
+
+        IntentFilter filter = new IntentFilter(ACTION_UPDATE);
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(updateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(updateReceiver, filter);
+        }
+
+        receiverRegistered = true;
     }
 
     void createIsland() {
+
         island = new LinearLayout(this);
         island.setOrientation(LinearLayout.HORIZONTAL);
         island.setGravity(Gravity.CENTER_VERTICAL);
@@ -80,10 +105,12 @@ public class IslandService extends Service {
         dot.setBackground(shape(Color.rgb(0,255,100), 20));
 
         island.addView(title, new LinearLayout.LayoutParams(
-            0, dp(20), 1));
+            0, dp(20), 1
+        ));
 
         LinearLayout.LayoutParams dotParams =
             new LinearLayout.LayoutParams(dp(8), dp(8));
+
         dotParams.setMargins(dp(8), 0, 0, 0);
         island.addView(dot, dotParams);
 
@@ -92,7 +119,9 @@ public class IslandService extends Service {
             : WindowManager.LayoutParams.TYPE_PHONE;
 
         params = new WindowManager.LayoutParams(
-            dp(112), dp(34), type,
+            dp(prefs.getInt("width",112)),
+            dp(prefs.getInt("height",34)),
+            type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -100,17 +129,38 @@ public class IslandService extends Service {
         );
 
         params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = dp(5);
 
         island.setOnClickListener(v -> toggleExpand());
 
-        added = true;
         updatePosition();
 
         try {
             wm.addView(island, params);
+            added = true;
         } catch (Exception e) {
             added = false;
+        }
+    }
+
+    void updatePosition() {
+        if (params == null) return;
+
+        int x = prefs.getInt("x",0);
+        int y = prefs.getInt("y",dp(5));
+        int width = prefs.getInt("width",112);
+        int height = prefs.getInt("height",34);
+
+        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        params.x = x;
+        params.y = y;
+
+        params.width = dp(expanded ? Math.max(width,220) : width);
+        params.height = dp(expanded ? Math.max(height,48) : height);
+
+        if (added && island != null) {
+            try {
+                wm.updateViewLayout(island,params);
+            } catch (Exception ignored) {}
         }
     }
 
@@ -119,69 +169,14 @@ public class IslandService extends Service {
 
         if (expanded) {
             title.setText("XOS  •  LIVE");
-            params.width = dp(220);
-            params.height = dp(48);
+            island.setPadding(dp(18),0,dp(15),0);
         } else {
             title.setText("XOS");
-            params.width = dp(112);
-            params.height = dp(34);
+            island.setPadding(dp(15),0,dp(12),0);
         }
 
-        if (added) {
-            try {
-                wm.updateViewLayout(island, params);
-            } catch (Exception ignored) {}
-        }
+        updatePosition();
     }
-
-    void updatePosition() {
-        if (params == null) return;
-
-        boolean landscape =
-            getResources().getConfiguration().orientation ==
-            android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = dp(landscape ? 3 : 5);
-    }
-
-    Runnable poll = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                updatePosition();
-
-                if (SettingsHelper.allowed(IslandService.this)) {
-                    UsageStatsManager usage =
-                        (UsageStatsManager)getSystemService(USAGE_STATS_SERVICE);
-
-                    long now = System.currentTimeMillis();
-                    UsageEvents events = usage.queryEvents(now - 10000, now);
-                    UsageEvents.Event event = new UsageEvents.Event();
-                    String foreground = "";
-
-                    while (events.hasNextEvent()) {
-                        events.getNextEvent(event);
-                        if (event.getEventType() ==
-                            UsageEvents.Event.ACTIVITY_RESUMED ||
-                            event.getEventType() ==
-                            UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                            foreground = event.getPackageName();
-                        }
-                    }
-
-                    boolean show = !foreground.isEmpty() &&
-                        !foreground.equals(getPackageName());
-
-                    if (added) {
-                        island.setVisibility(show ? View.VISIBLE : View.GONE);
-                    }
-                }
-            } catch (Exception ignored) {}
-
-            handler.postDelayed(this, 1000);
-        }
-    };
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -190,31 +185,23 @@ public class IslandService extends Service {
 
     @Override
     public void onDestroy() {
-        handler.removeCallbacks(poll);
-        if (added && island != null) {
-            try { wm.removeView(island); } catch (Exception ignored) {}
+        if (receiverRegistered) {
+            try {
+                unregisterReceiver(updateReceiver);
+            } catch (Exception ignored) {}
         }
+
+        if (added && island != null) {
+            try {
+                wm.removeView(island);
+            } catch (Exception ignored) {}
+        }
+
         super.onDestroy();
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    public static class SettingsHelper {
-        static boolean allowed(Context c) {
-            try {
-                android.app.AppOpsManager appOps =
-                    (android.app.AppOpsManager)c.getSystemService(
-                        Context.APP_OPS_SERVICE);
-                int mode = appOps.checkOpNoThrow(
-                    "android:get_usage_stats",
-                    android.os.Process.myUid(), c.getPackageName());
-                return mode == android.app.AppOpsManager.MODE_ALLOWED;
-            } catch (Exception e) {
-                return false;
-            }
-        }
     }
 }
