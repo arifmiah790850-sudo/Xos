@@ -19,15 +19,21 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Android SDK
+      - name: Android SDK Setup
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
+          accept-android-sdk-licenses: true
 
       - name: Gradle Setup
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Build APK
+      - name: Build XOS APK
         run: gradle assembleDebug
 
       - name: Upload XOS APK
