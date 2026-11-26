@@ -9,26 +9,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Java Setup
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Android SDK Setup
-        uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-36
-            build-tools;36.0.0
-          accept-android-sdk-licenses: true
+      - name: Check Android SDK
+        run: |
+          ls "$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms"
 
-      - name: Gradle Setup
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
@@ -36,7 +36,7 @@ jobs:
       - name: Build XOS APK
         run: gradle assembleDebug
 
-      - name: Upload XOS APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: XOS-APK
