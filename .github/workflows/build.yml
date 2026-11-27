@@ -1,13 +1,18 @@
-name: XOS APK Build
+name: XOS Blue Dot APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout
@@ -19,20 +24,18 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Android SDK packages
+      - name: Verify Android SDK
         run: |
-          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
-          echo "Using sdkmanager: $SDKMANAGER"
-          test -n "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          test -d "$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms"
+          ls "$ANDROID_HOME/build-tools"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
 
-      - name: Build XOS APK
+      - name: Build XOS Blue Dot
         run: gradle assembleDebug
 
       - name: Upload APK
